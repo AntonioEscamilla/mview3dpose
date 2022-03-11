@@ -18,8 +18,8 @@ from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, 
 from backend.CamStyle.feature_extract import FeatureExtractor
 from src.models.matchSVT import matchSVT
 from src.m_utils.visualize import show_panel_mem, plotPaperRows
-# from src.models import pictorial
-from src.m_lib import pictorial
+from src.models import pictorial
+#from src.m_lib import pictorial
 
 
 class MultiEstimator(object):

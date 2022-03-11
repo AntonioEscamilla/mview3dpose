@@ -82,6 +82,7 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, batch_size=1, pin_memory=True, num_workers=6, shuffle=False)
         pose_in_range = export(test_model, test_loader, show=True)
         test_range_str = '_' + str(args.range[0]) + '_' + str(args.range[1])
+        os.makedirs(osp.join(model_cfg.root_dir, 'result'), exist_ok=True)
         with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + test_range_str + '.pkl'), 'wb') as f:
             pickle.dump(pose_in_range, f)
 
