@@ -25,7 +25,7 @@ class ModelConfig(object):
     use_mincut = False
     metric = 'geometry mean'
     testing_on = 'Shelf'
-    reprojection_refine = False
+    reprojection_refine = False          # False
     refine_threshold = 1
     semantic_matching = False
     match_SVT = True
@@ -34,11 +34,10 @@ class ModelConfig(object):
     alpha_SVT = 0.5
     eta = 1.5
     beta = 0.5
-    use_bundle = False
+    use_bundle = False                   # False
     spectral = True
-    # what's with this ipdb import?
-    # hybrid = True
-    hybrid = False
+    hybrid = False                      # True. hybrid=False seems to be more precise.
+
 
     def __repr__(self):
         if self.semantic_matching:

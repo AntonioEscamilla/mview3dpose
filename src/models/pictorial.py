@@ -111,8 +111,7 @@ def inferPict3D_MaxProd(unary, edges, X):
     # xpk = np.array ( [0 for i in range ( unary.shape[0] )] )
     xpk = np.zeros ( unary.shape[0], dtype=np.int64 )  # Also change from original implementation
     xpk[0] = values.argmax ()
-    import ipdb
-    ipdb.set_trace()
+
     for n in range ( 1, num ):
         p = get_pa ( n )
         xn = get_max ( n, p, xpk[p], unary, edges, X )

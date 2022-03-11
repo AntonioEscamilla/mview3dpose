@@ -1,4 +1,5 @@
-
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
@@ -706,3 +707,4 @@ def drawSkeletonPaper(img, kp, colors):
                 cv2.circle ( img, tuple ( kp[j][:2] ), 5, tuple ( colors ), -1 )
             elif len ( kp[j] ) <= 2 or (len ( kp[j] ) > 2 and kp[j][2] > 0.1):
                 cv2.circle ( img, tuple ( kp[j][:2] ), 5, tuple ( colors ), -1 )
+
