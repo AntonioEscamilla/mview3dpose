@@ -31,7 +31,7 @@ def export(model, loader, show=False):
 
         info_dicts = numpify(imgs)
         model.dataset = MemDataset(info_dict=info_dicts, camera_parameter=camera_parameter, template_name='Unified')
-        poses3d = model._estimate3d(0, show=show)
+        poses3d = model.estimate3d(0, show=show)
 
         pose_list.append(poses3d)
     return pose_list
