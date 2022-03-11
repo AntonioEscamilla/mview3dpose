@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -6,20 +5,20 @@ import sys
 import os
 
 
-class ModelConfig ( object ):
-    model_dir = os.path.abspath ( os.path.join ( os.path.dirname ( __file__ ) ) )
-    root_dir = os.path.abspath ( os.path.join ( model_dir, '..', '..' ) )
-    datasets_dir = os.path.join ( root_dir, 'datasets' )
-    shelf_path = os.path.join ( datasets_dir, 'Shelf' )
-    campus_path = os.path.join ( datasets_dir, 'CampusSeq1' )
-    ultimatum1_path = os.path.join ( datasets_dir, '160422_ultimatum1', 'vgaImgs' )
+class ModelConfig(object):
+    model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+    root_dir = os.path.abspath(os.path.join(model_dir, '..', '..'))
+    datasets_dir = os.path.join(root_dir, 'datasets')
+    shelf_path = os.path.join(datasets_dir, 'Shelf')
+    campus_path = os.path.join(datasets_dir, 'CampusSeq1')
+    hexagonos_path = os.path.join(datasets_dir, 'Hexagonos')
+    ultimatum1_path = os.path.join(datasets_dir, '160422_ultimatum1', 'vgaImgs')
 
-
-
-    shelf_range = range ( 300, 600 )
-    campus_range = [i for i in range ( 350, 471 )] + [i for i in range ( 650, 751 )]
+    shelf_range = range(300, 600)
+    campus_range = [i for i in range(350, 471)] + [i for i in range(650, 751)]
+    hexagonos_range = [i for i in range(650, 655, 1)]
     vga_frame_rate = 25
-    ultimatum1_range = list ( range ( 17337, 17370 ) ) + list ( range ( 21560, 21660 ) )
+    ultimatum1_range = list(range(17337, 17370)) + list(range(21560, 21660))
 
     joint_num = 17
     rerank = False
@@ -37,7 +36,9 @@ class ModelConfig ( object ):
     beta = 0.5
     use_bundle = False
     spectral = True
-    hybrid = True
+    # what's with this ipdb import?
+    # hybrid = True
+    hybrid = False
 
     def __repr__(self):
         if self.semantic_matching:
@@ -48,6 +49,6 @@ class ModelConfig ( object ):
             return f'testing_on: {self.testing_on}  beta:{self.beta} metric: {self.metric}'
 
 
-model_cfg = ModelConfig ()
+model_cfg = ModelConfig()
 if model_cfg.root_dir not in sys.path:
-    sys.path.append ( model_cfg.root_dir )
+    sys.path.append(model_cfg.root_dir)

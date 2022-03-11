@@ -76,8 +76,7 @@ class MultiEstimator(object):
             else:
                 X0[:, :W.shape[1]] = eig_vector.t()
 
-        match_mat = matchSVT(W, dimGroup, alpha=self.cfg.alpha_SVT, _lambda=self.cfg.lambda_SVT,
-                             dual_stochastic_SVT=self.cfg.dual_stochastic_SVT)
+        match_mat = matchSVT(W, dimGroup, alpha=self.cfg.alpha_SVT, _lambda=self.cfg.lambda_SVT, dual_stochastic_SVT=self.cfg.dual_stochastic_SVT)
 
         bin_match = match_mat[:, torch.nonzero(torch.sum(match_mat, dim=0) > 1.9).squeeze()] > 0.9
         bin_match = bin_match.reshape(W.shape[0], -1)

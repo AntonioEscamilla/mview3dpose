@@ -90,7 +90,8 @@ def matchSVT(S, dimGroup, **kwargs):
     X_bin = X > 0.5
     if verbose:
         print(f"Alg terminated. Time = {info['time']}, #Iter = {info['iter']}, Res = ({pRes}, {dRes}), mu = {mu} \n")
-    match_mat = transform_closure(X_bin.numpy())
+    # match_mat = transform_closure ( X_bin.numpy() )
+    match_mat = transform_closure(X_bin)
     return torch.tensor(match_mat)
 
 
