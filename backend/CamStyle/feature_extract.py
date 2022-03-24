@@ -210,4 +210,4 @@ class FeatureExtractor ( object ):
             affinity = reranking ( query_features, query_features.copy (), query, query )
         else:
             affinity = pairwise_affinity ( query_features, query_features.copy (), query, query )
-        return affinity
+        return affinity, query_features, query

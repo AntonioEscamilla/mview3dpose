@@ -1,5 +1,5 @@
-import matplotlib
-matplotlib.use('TkAgg')
+# import matplotlib
+# matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
@@ -649,6 +649,49 @@ def plotPaper3d(poses, colors):
     ax.set_zlim3d ( smallest[2], largest[2] )
 
     for i, pose in enumerate ( poses ):
+        assert (pose.ndim == 2)
+        assert (pose.shape[0] == 3)
+        for c in _CONNECTION:
+            col = '#%02x%02x%02x' % (colors[i][0], colors[i][1], colors[i][2])
+            ax.plot ( [pose[0, c[0]], pose[0, c[1]]],
+                      [pose[1, c[0]], pose[1, c[1]]],
+                      [pose[2, c[0]], pose[2, c[1]]], c=col )
+        for j in range ( pose.shape[1] ):
+            col = '#%02x%02x%02x' % (colors[i][0], colors[i][1], colors[i][2])
+            ax.scatter ( pose[0, j], pose[1, j], pose[2, j],
+                         c=col, marker='o', edgecolor=col )
+        # ax.set_label ( f'#{i}' )
+    return fig
+
+
+def plotTracked3d(tracked_poses):
+    """Plot the 3D pose showing the joint connections.
+    kp_names = ['nose', 'l_eye', 'r_eye', 'l_ear', 'r_ear', 'l_shoulder',  # 5
+                'r_shoulder', 'l_elbow', 'r_elbow', 'l_wrist', 'r_wrist',  # 10
+                'l_hip', 'r_hip', 'l_knee', 'r_knee', 'l_ankle', 'r_ankle']
+    """
+    import mpl_toolkits.mplot3d.axes3d as p3
+    # R = np.array ( [[1, 0, 0], [0, 0, 1], [0, -1, 0]] )
+    R = np.array ( [[1, 0, 0], [0, 1, 0], [0, 0, 1]] )
+    poses = [R @ i for _, i in tracked_poses]
+    _CONNECTION = [[15, 13], [13, 11], [16, 14], [14, 12], [11, 12], [5, 11], [6, 12], [5, 6], [5, 7], [6, 8], [7, 9],
+                   [8, 10], [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6]]
+
+    colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255), (255, 215, 0), (0, 255, 255), (255, 255, 0)]
+
+    fig = plt.figure ()
+    import math
+    rows = math.ceil ( math.sqrt ( len ( poses ) ) )
+
+    ax = fig.gca ( projection='3d' )
+
+    smallest = [min ( [i[idx].min () for i in poses] ) for idx in range ( 3 )]
+    largest = [max ( [i[idx].max () for i in poses] ) for idx in range ( 3 )]
+    ax.set_xlim3d ( smallest[0], largest[0] )
+    ax.set_ylim3d ( smallest[1], largest[1] )
+    ax.set_zlim3d ( smallest[2], largest[2] )
+
+    for i, pose in tracked_poses:
         assert (pose.ndim == 2)
         assert (pose.shape[0] == 3)
         for c in _CONNECTION:

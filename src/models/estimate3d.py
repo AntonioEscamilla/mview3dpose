@@ -14,10 +14,14 @@ coloredlogs.install(level='DEBUG', logger=logger)
 import cv2
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.optimize import linear_sum_assignment
 from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, check_bone_length, bundle_adjustment, multiTriIter
-from backend.CamStyle.feature_extract import FeatureExtractor
+from backend.CamStyle.feature_extract import FeatureExtractor, pairwise_distance
 from src.models.matchSVT import matchSVT
 from src.m_utils.visualize import show_panel_mem, plotPaperRows
+from collections import OrderedDict
 from src.models import pictorial
 #from src.m_lib import pictorial
 
@@ -27,10 +31,11 @@ class MultiEstimator(object):
         self.extractor = FeatureExtractor()
         self.cfg = cfg
         self.dataset = None
+        self.tracks = []
 
     def estimate3d(self, img_id, show=False, plt_id=0):
         data_batch = self.dataset[img_id]
-        affinity_mat = self.extractor.get_affinity(data_batch, rerank=self.cfg.rerank)
+        affinity_mat, query_features, query = self.extractor.get_affinity(data_batch, rerank=self.cfg.rerank)
         if self.cfg.rerank:
             affinity_mat = torch.from_numpy(affinity_mat)
             affinity_mat = torch.max(affinity_mat, affinity_mat.t())
@@ -108,7 +113,61 @@ class MultiEstimator(object):
             plotPaperRows(self.dataset, matched_list, info_list, sub_imgid2cam, img_id, affinity_mat,
                           geo_affinity_mat, W, plt_id, multi_pose3d)
 
-        return multi_pose3d
+        candidates = []
+        for chosen_idx in chosen_img:
+            if len(chosen_idx) > 1:
+                matched_query = [query[i] for i in chosen_idx]
+                matched_features = OrderedDict((key, query_features[key]) for key, _, _ in matched_query)
+                candidates.append([matched_features, matched_query])
+
+        tracked_pose = []
+        n = len(self.tracks)
+        if n > 0:
+            m = len(candidates)
+            # fig, axs = plt.subplots(n, m)
+            D = np.empty((n, m))
+            for tid, track in enumerate(self.tracks):
+                for cid, candidate in enumerate(candidates):
+                    between_frames_aff = pairwise_distance(track[0], candidate[0], track[1], candidate[1])
+                    between_frames_aff.cpu().detach().numpy()
+                    D[tid, cid] = between_frames_aff.mean()
+                    # if n > 1 and m > 1:
+                    #     sns.heatmap(between_frames_aff, ax=axs[tid, cid])
+                    # else:
+                    #     sns.heatmap(between_frames_aff, ax=axs)
+            #plt.show()
+            #print(f'D = {D}')
+            rows, cols = linear_sum_assignment(D)
+            # D = D * scale_to_mm  # ensure that distances in D are in [mm]
+
+            handled_pids = set()
+            self.tracks = []
+            for tid, cid in zip(rows, cols):
+                d = D[tid, cid]
+                if d > 0.25:
+                    continue
+
+                # merge pose into track
+                ID = tid
+                pose = multi_pose3d[cid]
+                tracked_pose.append((ID, pose))
+                self.tracks.append(candidates[cid])
+                handled_pids.add(cid)
+
+            # add all remaining poses as tracks
+            for cid, candidate in enumerate(candidates):
+                if cid in handled_pids:
+                    continue
+                self.tracks.append(candidates[cid])
+                ID = len(self.tracks) - 1
+                tracked_pose.append((ID, multi_pose3d[cid]))
+
+        else:   # no tracks yet... add them
+            self.tracks = candidates
+            for pid, pose in enumerate(multi_pose3d):
+                tracked_pose.append((pid, pose))
+
+        return multi_pose3d, tracked_pose
 
     def _hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id):
         #return pictorial.hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id)

@@ -23,7 +23,7 @@ class ModelConfig(object):
     joint_num = 17
     rerank = False
     use_mincut = False
-    metric = 'geometry mean'
+    metric = 'circle'
     testing_on = 'Shelf'
     reprojection_refine = False          # False
     refine_threshold = 1

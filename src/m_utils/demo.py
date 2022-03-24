@@ -19,6 +19,7 @@ from src.m_utils.base_dataset import PreprocessedDataset
 from src.models.estimate3d import MultiEstimator
 from src.m_utils.evaluate import numpify
 from src.m_utils.mem_dataset import MemDataset
+from src.m_utils.visualize import plotTracked3d
 
 
 def export(model, loader, show=False):
@@ -30,10 +31,15 @@ def export(model, loader, show=False):
             pass
 
         info_dicts = numpify(imgs)
+        # frame = int(info_dicts[0]['image_path'][0].split('-')[1])
         model.dataset = MemDataset(info_dict=info_dicts, camera_parameter=camera_parameter, template_name='Unified')
-        poses3d = model.estimate3d(0, show=show)
+        poses3d, tracked_poses3d = model.estimate3d(0, show=show)
+        # if frame > 650:
+        #     fig = plotTracked3d(tracked_poses3d)
+        #     fig.show()
 
-        pose_list.append(poses3d)
+        # pose_list.append(poses3d)
+        pose_list.append(tracked_poses3d)
     return pose_list
 
 
@@ -80,10 +86,10 @@ if __name__ == '__main__':
         logger.info(f"Using pre-processed datasets {args.dumped_dir[dataset_idx]} for quicker evaluation")
 
         test_loader = DataLoader(test_dataset, batch_size=1, pin_memory=True, num_workers=6, shuffle=False)
-        pose_in_range = export(test_model, test_loader, show=True)
+        pose_in_range = export(test_model, test_loader, show=False)
         test_range_str = '_' + str(args.range[0]) + '_' + str(args.range[1])
         os.makedirs(osp.join(model_cfg.root_dir, 'result'), exist_ok=True)
-        with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + test_range_str + '.pkl'), 'wb') as f:
+        with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + test_range_str + '_trcked.pkl'), 'wb') as f:
             pickle.dump(pose_in_range, f)
 
 
