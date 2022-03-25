@@ -92,7 +92,7 @@ def matchSVT(S, dimGroup, **kwargs):
         print(f"Alg terminated. Time = {info['time']}, #Iter = {info['iter']}, Res = ({pRes}, {dRes}), mu = {mu} \n")
     # match_mat = transform_closure ( X_bin.numpy() )
     match_mat = transform_closure(X_bin)
-    return torch.tensor(match_mat)
+    return match_mat.clone().detach()
 
 
 if __name__ == '__main__':

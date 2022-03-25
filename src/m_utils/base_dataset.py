@@ -43,10 +43,15 @@ class BaseDataset(Dataset):
 
 
 class PreprocessedDataset(Dataset):
-    def __init__(self, dataset_dir):
+    def __init__(self, dataset_dir, test_range):
         self.abs_dataset_dir = osp.abspath(dataset_dir)
-        self.info_files = sorted(glob(osp.join(self.abs_dataset_dir, '*.pickle')),
-                                 key=lambda x: int(osp.basename(x).split('.')[0]))  # To take %d.infodicts.pickle
+        self.info_files = list()
+        for frame in test_range:
+            file = f'{frame}.info_dicts.pickle'
+            self.info_files.append(osp.join(self.abs_dataset_dir, file))
+
+        # self.info_files = sorted(glob(osp.join(self.abs_dataset_dir, '*.pickle')),
+        #                          key=lambda x: int(osp.basename(x).split('.')[0]))
 
     def __len__(self):
         return len(self.info_files)

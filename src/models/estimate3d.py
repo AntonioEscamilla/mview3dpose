@@ -120,6 +120,50 @@ class MultiEstimator(object):
                 matched_features = OrderedDict((key, query_features[key]) for key, _, _ in matched_query)
                 candidates.append([matched_features, matched_query])
 
+        # ------------------------------------
+        # Eliminate duplicated candidate poses
+        # ------------------------------------
+        distances = []  # (hid1, hid2, distance)
+        n = len(candidates)
+        for i in range(n):
+            for j in range(i + 1, n):
+                distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1]).mean().item()
+                distances.append((i, j, distance))
+        mergers_root = {}  # hid -> root
+        mergers = {}  # root: [ hid, hid, .. ]
+        all_merged_hids = set()
+        for hid1, hid2, distance in distances:
+            if distance > 0.26:
+                continue
+
+            if hid1 in mergers_root and hid2 in mergers_root:
+                continue  # both are already handled
+
+            if hid1 in mergers_root:
+                hid1 = mergers_root[hid1]
+
+            if hid1 not in mergers:
+                mergers[hid1] = [hid1]
+
+            mergers[hid1].append(hid2)
+            mergers_root[hid2] = hid1
+            all_merged_hids.add(hid1)
+            all_merged_hids.add(hid2)
+
+        merged_poses = []
+        merged_candidates = []
+        for hid in range(n):
+            if hid in mergers:
+                poses_list = [multi_pose3d[hid2] for hid2 in mergers[hid]]
+                merged_poses.append(get_avg_pose(poses_list))
+                merged_candidates.append(candidates[hid])
+            elif hid not in all_merged_hids:
+                merged_poses.append(multi_pose3d[hid])
+                merged_candidates.append(candidates[hid])
+
+        multi_pose3d = merged_poses
+        candidates = merged_candidates
+
         tracked_pose = []
         n = len(self.tracks)
         if n > 0:
@@ -141,31 +185,38 @@ class MultiEstimator(object):
             # D = D * scale_to_mm  # ensure that distances in D are in [mm]
 
             handled_pids = set()
-            self.tracks = []
+            new_tracks = []
             for tid, cid in zip(rows, cols):
                 d = D[tid, cid]
-                if d > 0.25:
+                if d > 0.28:
                     continue
 
                 # merge pose into track
-                ID = tid
+                ID = self.tracks[tid][2]
                 pose = multi_pose3d[cid]
                 tracked_pose.append((ID, pose))
-                self.tracks.append(candidates[cid])
+                candidates[cid].append(ID)
+                new_tracks.append(candidates[cid])
                 handled_pids.add(cid)
 
             # add all remaining poses as tracks
             for cid, candidate in enumerate(candidates):
                 if cid in handled_pids:
                     continue
-                self.tracks.append(candidates[cid])
-                ID = len(self.tracks) - 1
+                self.last_ID_used += 1
+                ID = self.last_ID_used
                 tracked_pose.append((ID, multi_pose3d[cid]))
+                candidates[cid].append(ID)
+                new_tracks.append(candidates[cid])
+
+            self.tracks = new_tracks
 
         else:   # no tracks yet... add them
-            self.tracks = candidates
             for pid, pose in enumerate(multi_pose3d):
                 tracked_pose.append((pid, pose))
+                candidates[pid].append(pid)
+                self.tracks.append(candidates[pid])
+                self.last_ID_used = pid
 
         return multi_pose3d, tracked_pose
 
@@ -278,3 +329,19 @@ class MultiEstimator(object):
                 pass
             chosen_img.append(sub_imageid)
         return multi_pose3d, chosen_img
+
+
+def get_avg_pose(poses):
+    J = len(poses[0])
+    result = [None] * J
+
+    for jid in range(J):
+        valid_points = []
+        for pose in poses:
+            if pose[jid] is not None:
+                valid_points.append(pose[jid])
+        if len(valid_points) > 0:
+            result[jid] = np.mean(valid_points, axis=0)
+        else:
+            result[jid] = None
+    return np.asarray(result)
