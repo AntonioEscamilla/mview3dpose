@@ -2,3 +2,5 @@
 datasets/
 backend/CamStyle/logs
 result/
+src/m_utils/__pycache__/
+src/models/__pycache__/

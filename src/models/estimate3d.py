@@ -127,13 +127,14 @@ class MultiEstimator(object):
         n = len(candidates)
         for i in range(n):
             for j in range(i + 1, n):
-                distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1]).mean().item()
+                distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1])
+                distance = distance.min().item()    # --> change to min() and distance>0.2 and evaluate 327 400
                 distances.append((i, j, distance))
         mergers_root = {}  # hid -> root
         mergers = {}  # root: [ hid, hid, .. ]
         all_merged_hids = set()
         for hid1, hid2, distance in distances:
-            if distance > 0.26:
+            if distance > 0.21:
                 continue
 
             if hid1 in mergers_root and hid2 in mergers_root:
@@ -172,9 +173,8 @@ class MultiEstimator(object):
             D = np.empty((n, m))
             for tid, track in enumerate(self.tracks):
                 for cid, candidate in enumerate(candidates):
-                    between_frames_aff = pairwise_distance(track[0], candidate[0], track[1], candidate[1])
-                    between_frames_aff.cpu().detach().numpy()
-                    D[tid, cid] = between_frames_aff.mean()
+                    between_frames_aff = pairwise_distance(track[0], candidate[0], track[1], candidate[1]).cpu().detach().numpy()
+                    D[tid, cid] = between_frames_aff.min()
                     # if n > 1 and m > 1:
                     #     sns.heatmap(between_frames_aff, ax=axs[tid, cid])
                     # else:
@@ -188,7 +188,7 @@ class MultiEstimator(object):
             new_tracks = []
             for tid, cid in zip(rows, cols):
                 d = D[tid, cid]
-                if d > 0.28:
+                if d > 0.21:
                     continue
 
                 # merge pose into track

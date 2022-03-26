@@ -31,14 +31,12 @@ def export(model, loader, show=False):
             pass
 
         info_dicts = numpify(imgs)
-        # frame = int(info_dicts[0]['image_path'][0].split('-')[1])
         model.dataset = MemDataset(info_dict=info_dicts, camera_parameter=camera_parameter, template_name='Unified')
         #poses3d = model.estimate3d(0, show=show)
         poses3d, tracked_poses3d = model.estimate3d(0, show=show)
 
-        # if frame > 650:
-        # fig = plotTracked3d(tracked_poses3d)
-        # fig.show()
+        fig = plotTracked3d(tracked_poses3d)
+        fig.show()
 
         #pose_list.append(poses3d)
         pose_list.append(tracked_poses3d)
