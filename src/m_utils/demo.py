@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import pickle
 import sys
+import matplotlib.pyplot as plt
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if __name__ == '__main__':
@@ -37,6 +38,7 @@ def export(model, loader, show=False):
 
         fig = plotTracked3d(tracked_poses3d)
         fig.show()
+        plt.show()
 
         #pose_list.append(poses3d)
         pose_list.append(tracked_poses3d)
@@ -86,7 +88,7 @@ if __name__ == '__main__':
         logger.info(f"Using pre-processed datasets {args.dumped_dir[dataset_idx]} for quicker evaluation")
 
         test_loader = DataLoader(test_dataset, batch_size=1, pin_memory=False, num_workers=6, shuffle=False)
-        pose_in_range = export(test_model, test_loader, show=False)
+        pose_in_range = export(test_model, test_loader, show=True)
         test_range_str = '_' + str(args.range[0]) + '_' + str(args.range[1])
         os.makedirs(osp.join(model_cfg.root_dir, 'result'), exist_ok=True)
         with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + '_tracked' + test_range_str + '.pkl'), 'wb') as f:

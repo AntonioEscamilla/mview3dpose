@@ -686,8 +686,10 @@ def plotTracked3d(tracked_poses):
 
     smallest = [min([i[idx].min() for i in poses]) for idx in range(3)]
     largest = [max([i[idx].max() for i in poses]) for idx in range(3)]
-    ax.set_xlim3d(smallest[0] - 1, largest[0] + 1)
-    ax.set_ylim3d(smallest[1] -1, largest[1] + 1)
+    # ax.set_xlim3d(smallest[0] - 1, largest[0] + 1)
+    # ax.set_ylim3d(smallest[1] -1, largest[1] + 1)
+    ax.set_xlim3d(- 2, 5)
+    ax.set_ylim3d(-2, 5)
     ax.set_zlim3d(smallest[2], largest[2])
 
     for i, pose in tracked_poses:

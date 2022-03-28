@@ -19,6 +19,7 @@ import seaborn as sns
 from scipy.optimize import linear_sum_assignment
 from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, check_bone_length, bundle_adjustment, multiTriIter
 from backend.CamStyle.feature_extract import FeatureExtractor, pairwise_distance
+#from backend.reid.torchreid.utils.feature_extractor import FeatureExtractor, pairwise_distance
 from src.models.matchSVT import matchSVT
 from src.m_utils.visualize import show_panel_mem, plotPaperRows
 from collections import OrderedDict
@@ -29,6 +30,11 @@ from src.models import pictorial
 class MultiEstimator(object):
     def __init__(self, cfg, debug=False):
         self.extractor = FeatureExtractor()
+        # self.extractor = FeatureExtractor(
+        #     model_name='osnet_x1_0',
+        #     model_path='c:\\Python Projects\\MultiView_MultiPeople_Pose\\05_mview3dpose\\backend\\reid\\models\\osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth',
+        #     device='cuda'
+        # )
         self.cfg = cfg
         self.dataset = None
         self.tracks = []
@@ -134,7 +140,8 @@ class MultiEstimator(object):
         mergers = {}  # root: [ hid, hid, .. ]
         all_merged_hids = set()
         for hid1, hid2, distance in distances:
-            if distance > 0.21:
+            if distance > 0.24:
+            #if distance > 0.18:    # threshold for OsNet reid
                 continue
 
             if hid1 in mergers_root and hid2 in mergers_root:
@@ -189,6 +196,7 @@ class MultiEstimator(object):
             for tid, cid in zip(rows, cols):
                 d = D[tid, cid]
                 if d > 0.21:
+                #if d > 0.17:       # threshold for OsNet reid
                     continue
 
                 # merge pose into track
