@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import pickle
 import sys
+import numpy as np
 import matplotlib.pyplot as plt
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -20,10 +21,11 @@ from src.m_utils.base_dataset import PreprocessedDataset
 from src.models.estimate3d import MultiEstimator
 from src.m_utils.evaluate import numpify
 from src.m_utils.mem_dataset import MemDataset
+from src.m_utils.tracker import Track
 from src.m_utils.visualize import plotTracked3d
 
 
-def export(model, loader, show=False):
+def export(model, loader, test_range, show=False):
     pose_list = list()
     for img_id, imgs in enumerate(tqdm(loader)):
         try:
@@ -32,17 +34,45 @@ def export(model, loader, show=False):
             pass
 
         info_dicts = numpify(imgs)
+        frame = int(info_dicts[0]['image_path'][0].split('-')[1])
         model.dataset = MemDataset(info_dict=info_dicts, camera_parameter=camera_parameter, template_name='Unified')
-        #poses3d = model.estimate3d(0, show=show)
-        poses3d, tracked_poses3d = model.estimate3d(0, show=show)
+        poses3d = model.estimate3d(0, frame, show=show)
+        #poses3d, tracked_poses3d = model.estimate3d(0, show=show)
 
-        fig = plotTracked3d(tracked_poses3d)
-        fig.show()
-        plt.show()
+        # fig = plotTracked3d(tracked_poses3d)
+        # fig.show()
+        # plt.show()
 
-        #pose_list.append(poses3d)
-        pose_list.append(tracked_poses3d)
-    return pose_list
+        pose_list.append(poses3d)
+        #pose_list.append(tracked_poses3d)
+
+    surviving_tracks = []
+    for track in model.tracks:
+        if len(track) >= 5:
+            surviving_tracks.append(track)
+
+    print('\n[smoothing]')
+    tracks = []
+    for track in tqdm(surviving_tracks):
+        track = Track.smoothing(track, sigma=2, interpolation_range=50, relevant_jids=range(0, 17))
+        tracks.append(track)
+
+    tracks_by_frame = {}
+    pose_by_track_and_frame = {}
+    for frame in test_range:
+        assert frame not in tracks_by_frame
+        tracks_by_frame[frame] = []
+        for tid, track in enumerate(tracks):
+            frames = track.frames
+            poses = track.poses
+            for i, t in enumerate(frames):
+                if t > frame:
+                    break
+                elif t == frame:
+                    tracks_by_frame[frame].append(tid)
+                    pose_by_track_and_frame[tid, frame] = 1000 * np.asarray(poses[i])
+
+    return pose_list, tracks_by_frame, pose_by_track_and_frame
 
 
 if __name__ == '__main__':
@@ -88,10 +118,10 @@ if __name__ == '__main__':
         logger.info(f"Using pre-processed datasets {args.dumped_dir[dataset_idx]} for quicker evaluation")
 
         test_loader = DataLoader(test_dataset, batch_size=1, pin_memory=False, num_workers=6, shuffle=False)
-        pose_in_range = export(test_model, test_loader, show=True)
+        pose_in_range, tracks_by_frame, pose_by_track_and_frame = export(test_model, test_loader, test_range, show=False)
         test_range_str = '_' + str(args.range[0]) + '_' + str(args.range[1])
         os.makedirs(osp.join(model_cfg.root_dir, 'result'), exist_ok=True)
-        with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + '_tracked' + test_range_str + '.pkl'), 'wb') as f:
-            pickle.dump(pose_in_range, f)
+        with open(osp.join(model_cfg.root_dir, 'result', model_cfg.testing_on + '_tracks_by_frame' + test_range_str + '.pkl'), 'wb') as f:
+            pickle.dump([tracks_by_frame, pose_by_track_and_frame], f)
 
 

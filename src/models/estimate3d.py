@@ -14,8 +14,6 @@ coloredlogs.install(level='DEBUG', logger=logger)
 import cv2
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from scipy.optimize import linear_sum_assignment
 from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, check_bone_length, bundle_adjustment, multiTriIter
 from backend.CamStyle.feature_extract import FeatureExtractor, pairwise_distance
@@ -23,6 +21,7 @@ from backend.CamStyle.feature_extract import FeatureExtractor, pairwise_distance
 from src.models.matchSVT import matchSVT
 from src.m_utils.visualize import show_panel_mem, plotPaperRows
 from collections import OrderedDict
+from src.m_utils.tracker import Track
 from src.models import pictorial
 #from src.m_lib import pictorial
 
@@ -39,7 +38,7 @@ class MultiEstimator(object):
         self.dataset = None
         self.tracks = []
 
-    def estimate3d(self, img_id, show=False, plt_id=0):
+    def estimate3d(self, img_id, frame, show=False, plt_id=0, last_seen_delay=5):
         data_batch = self.dataset[img_id]
         affinity_mat, query_features, query = self.extractor.get_affinity(data_batch, rerank=self.cfg.rerank)
         if self.cfg.rerank:
@@ -129,23 +128,22 @@ class MultiEstimator(object):
         # ------------------------------------
         # Eliminate duplicated candidate poses
         # ------------------------------------
-        distances = []  # (hid1, hid2, distance)
+        distances = []                                                          # (hid1, hid2, distance)
         n = len(candidates)
         for i in range(n):
             for j in range(i + 1, n):
                 distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1])
-                distance = distance.min().item()    # --> change to min() and distance>0.2 and evaluate 327 400
+                distance = distance.min().item()
                 distances.append((i, j, distance))
-        mergers_root = {}  # hid -> root
-        mergers = {}  # root: [ hid, hid, .. ]
+        mergers_root = {}                                                       # hid -> root
+        mergers = {}                                                            # root: [ hid, hid, .. ]
         all_merged_hids = set()
         for hid1, hid2, distance in distances:
-            if distance > 0.24:
-            #if distance > 0.18:    # threshold for OsNet reid
+            if distance > 0.24:                                                 # distance > 0.18 for OsNet reid
                 continue
 
             if hid1 in mergers_root and hid2 in mergers_root:
-                continue  # both are already handled
+                continue                                                        # both are already handled
 
             if hid1 in mergers_root:
                 hid1 = mergers_root[hid1]
@@ -172,61 +170,51 @@ class MultiEstimator(object):
         multi_pose3d = merged_poses
         candidates = merged_candidates
 
-        tracked_pose = []
-        n = len(self.tracks)
+        # ------------------------------------
+        # Track poses
+        # ------------------------------------
+        possible_tracks = []
+        for track in self.tracks:
+            if track.last_seen() + last_seen_delay < frame:
+                continue
+            possible_tracks.append(track)
+
+        n = len(possible_tracks)
         if n > 0:
             m = len(candidates)
-            # fig, axs = plt.subplots(n, m)
             D = np.empty((n, m))
-            for tid, track in enumerate(self.tracks):
+            for tid, track in enumerate(possible_tracks):
                 for cid, candidate in enumerate(candidates):
-                    between_frames_aff = pairwise_distance(track[0], candidate[0], track[1], candidate[1]).cpu().detach().numpy()
+                    between_frames_aff = pairwise_distance(track.reid_feats[0], candidate[0], track.reid_feats[1], candidate[1]).cpu().detach().numpy()
                     D[tid, cid] = between_frames_aff.min()
-                    # if n > 1 and m > 1:
-                    #     sns.heatmap(between_frames_aff, ax=axs[tid, cid])
-                    # else:
-                    #     sns.heatmap(between_frames_aff, ax=axs)
-            #plt.show()
-            #print(f'D = {D}')
+
             rows, cols = linear_sum_assignment(D)
-            # D = D * scale_to_mm  # ensure that distances in D are in [mm]
 
             handled_pids = set()
-            new_tracks = []
             for tid, cid in zip(rows, cols):
                 d = D[tid, cid]
                 if d > 0.21:
-                #if d > 0.17:       # threshold for OsNet reid
                     continue
 
                 # merge pose into track
-                ID = self.tracks[tid][2]
+                track = possible_tracks[tid]
                 pose = multi_pose3d[cid]
-                tracked_pose.append((ID, pose))
-                candidates[cid].append(ID)
-                new_tracks.append(candidates[cid])
+                track.add_pose(frame, pose, candidates[cid])
                 handled_pids.add(cid)
 
             # add all remaining poses as tracks
             for cid, candidate in enumerate(candidates):
                 if cid in handled_pids:
                     continue
-                self.last_ID_used += 1
-                ID = self.last_ID_used
-                tracked_pose.append((ID, multi_pose3d[cid]))
-                candidates[cid].append(ID)
-                new_tracks.append(candidates[cid])
+                track = Track(frame, multi_pose3d[cid], candidates[cid], last_seen_delay)
+                self.tracks.append(track)
 
-            self.tracks = new_tracks
-
-        else:   # no tracks yet... add them
+        else:
             for pid, pose in enumerate(multi_pose3d):
-                tracked_pose.append((pid, pose))
-                candidates[pid].append(pid)
-                self.tracks.append(candidates[pid])
-                self.last_ID_used = pid
+                track = Track(frame, pose, candidates[pid])
+                self.tracks.append(track)
 
-        return multi_pose3d, tracked_pose
+        return multi_pose3d
 
     def _hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id):
         #return pictorial.hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id)
@@ -238,10 +226,9 @@ class MultiEstimator(object):
                 continue
 
             # step1: use the 2D joint of person to triangulate the 3D joints candidates
-
             # person's 17 3D joints candidates
-            candidates = np.zeros((17, person.shape[0] * (person.shape[0] - 1) // 2, 3))
-            # 17xC^2_nx3
+            candidates = np.zeros((17, person.shape[0] * (person.shape[0] - 1) // 2, 3))            # 17xC^2_nx3
+
             cnt = 0
             for i in range(person.shape[0]):
                 for j in range(i + 1, person.shape[0]):
@@ -256,7 +243,6 @@ class MultiEstimator(object):
             unary = self.dataset.get_unary(person, sub_imgid2cam, candidates, img_id)
 
             # step2: use the max-product algorithm to inference to get the 3d joint of the person
-
             # change the coco order
             coco_2_skel = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
             candidates = np.array(candidates)[coco_2_skel]
@@ -268,7 +254,7 @@ class MultiEstimator(object):
             human = np.array([candidates[i][j] for i, j in zip(range(xp.shape[0]), xp)])
             human_coco = np.zeros((17, 3))
             human_coco[[0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]] = human
-            human_coco[[1, 2, 3, 4]] = human_coco[0]  # Just make visualize beauty not real ear and eye
+            human_coco[[1, 2, 3, 4]] = human_coco[0]                   # Just make visualize beauty not real ear and eye
             human_coco = human_coco.T
             if self.cfg.reprojection_refine and len(person) > 2:
                 for joint_idx in range(human_coco.shape[1]):
@@ -279,10 +265,8 @@ class MultiEstimator(object):
                         projected_pose_homo = self.dataset.P[sub_imgid2cam[pid]] @ human_coco_homo
                         projected_pose = projected_pose_homo[:2] / projected_pose_homo[2]
                         reprojected_error[idx] += np.linalg.norm(projected_pose - pose_mat[pid, joint_idx])
-                    # import IPython; IPython.embed()
-                    # pose_select = reprojected_error < self.cfg.refine_threshold
-                    pose_select = (
-                                          reprojected_error - reprojected_error.mean()) / reprojected_error.std() < self.cfg.refine_threshold
+
+                    pose_select = (reprojected_error - reprojected_error.mean()) / reprojected_error.std() < self.cfg.refine_threshold
                     if pose_select.sum() >= 2:
                         Ps = list()
                         Ys = list()
@@ -325,8 +309,7 @@ class MultiEstimator(object):
             pose2d_0, pose2d_1 = pose_mat[sub_imageid[0]].T, pose_mat[sub_imageid[1]].T
             pose3d_homo = cv2.triangulatePoints(projmat_0, projmat_1, pose2d_0, pose2d_1)
             if self.cfg.use_bundle:
-                pose3d_homo = bundle_adjustment(pose3d_homo, person, self.dataset, pose_mat, sub_imgid2cam,
-                                                logging=logger)
+                pose3d_homo = bundle_adjustment(pose3d_homo, person, self.dataset, pose_mat, sub_imgid2cam, logging=logger)
             pose3d = pose3d_homo[:3] / (pose3d_homo[3] + 10e-6)
             # pose3d -= ((pose3d[:, 11] + pose3d[:, 12]) / 2).reshape ( 3, -1 ) # No need to normalize to hip
             if check_bone_length(pose3d):
