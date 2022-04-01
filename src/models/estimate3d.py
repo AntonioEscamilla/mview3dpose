@@ -8,6 +8,7 @@ if project_path not in sys.path:
 
 from src.models.model_config import model_cfg
 import coloredlogs, logging
+
 logger = logging.getLogger(__name__)
 coloredlogs.install(level='DEBUG', logger=logger)
 
@@ -15,15 +16,22 @@ import cv2
 import torch
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, check_bone_length, bundle_adjustment, multiTriIter
+from src.m_utils.geometry import geometry_affinity, get_min_reprojection_error, check_bone_length, bundle_adjustment, \
+    multiTriIter
 from backend.CamStyle.feature_extract import FeatureExtractor, pairwise_distance
-#from backend.reid.torchreid.utils.feature_extractor import FeatureExtractor, pairwise_distance
+# from backend.reid.torchreid.utils.feature_extractor import FeatureExtractor, pairwise_distance
 from src.models.matchSVT import matchSVT
 from src.m_utils.visualize import show_panel_mem, plotPaperRows
 from collections import OrderedDict
 from src.m_utils.tracker import Track
 from src.models import pictorial
-#from src.m_lib import pictorial
+
+# from src.m_lib import pictorial
+
+
+sigmas = np.array([.26, .25, .25, .35, .35, .79, .79, .72, .72, .62, .62, 1.07, 1.07, .87, .87, .89, .89],
+                  dtype=np.float32) / 10.0
+vars_ = (sigmas * 2) ** 2
 
 
 class MultiEstimator(object):
@@ -38,7 +46,7 @@ class MultiEstimator(object):
         self.dataset = None
         self.tracks = []
 
-    def estimate3d(self, img_id, frame, show=False, plt_id=0, last_seen_delay=5):
+    def estimate3d(self, img_id, frame, show=False, plt_id=0, last_seen_delay=14):
         data_batch = self.dataset[img_id]
         affinity_mat, query_features, query = self.extractor.get_affinity(data_batch, rerank=self.cfg.rerank)
         if self.cfg.rerank:
@@ -86,7 +94,8 @@ class MultiEstimator(object):
             else:
                 X0[:, :W.shape[1]] = eig_vector.t()
 
-        match_mat = matchSVT(W, dimGroup, alpha=self.cfg.alpha_SVT, _lambda=self.cfg.lambda_SVT, dual_stochastic_SVT=self.cfg.dual_stochastic_SVT)
+        match_mat = matchSVT(W, dimGroup, alpha=self.cfg.alpha_SVT, _lambda=self.cfg.lambda_SVT,
+                             dual_stochastic_SVT=self.cfg.dual_stochastic_SVT)
 
         bin_match = match_mat[:, torch.nonzero(torch.sum(match_mat, dim=0) > 1.9).squeeze()] > 0.9
         bin_match = bin_match.reshape(W.shape[0], -1)
@@ -128,22 +137,27 @@ class MultiEstimator(object):
         # ------------------------------------
         # Eliminate duplicated candidate poses
         # ------------------------------------
-        distances = []                                                          # (hid1, hid2, distance)
+        distances = []  # (hid1, hid2, distance)
         n = len(candidates)
         for i in range(n):
             for j in range(i + 1, n):
-                distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1])
-                distance = distance.min().item()
-                distances.append((i, j, distance))
-        mergers_root = {}                                                       # hid -> root
-        mergers = {}                                                            # root: [ hid, hid, .. ]
+                feat_distance = pairwise_distance(candidates[i][0], candidates[j][0], candidates[i][1], candidates[j][1])
+                feat_distance = feat_distance.min().item()
+                pose_similarity = get_similarity(multi_pose3d[i], multi_pose3d[j])
+                distances.append((i, j, feat_distance, pose_similarity))
+        mergers_root = {}  # hid -> root
+        mergers = {}  # root: [ hid, hid, .. ]
         all_merged_hids = set()
-        for hid1, hid2, distance in distances:
-            if distance > 0.24:                                                 # distance > 0.18 for OsNet reid
+        for hid1, hid2, distance, similarity in distances:
+            # if distance > 0.24:  # distance > 0.18 for OsNet reid
+            if distance > 0.2 and similarity < 16:     # 15
                 continue
 
+            # if distance > 0.33:
+            #     continue
+
             if hid1 in mergers_root and hid2 in mergers_root:
-                continue                                                        # both are already handled
+                continue  # both are already handled
 
             if hid1 in mergers_root:
                 hid1 = mergers_root[hid1]
@@ -162,7 +176,7 @@ class MultiEstimator(object):
             if hid in mergers:
                 poses_list = [multi_pose3d[hid2] for hid2 in mergers[hid]]
                 merged_poses.append(get_avg_pose(poses_list))
-                merged_candidates.append(candidates[hid])
+                merged_candidates.append(merge_candidates_feats(candidates, mergers[hid]))
             elif hid not in all_merged_hids:
                 merged_poses.append(multi_pose3d[hid])
                 merged_candidates.append(candidates[hid])
@@ -185,7 +199,8 @@ class MultiEstimator(object):
             D = np.empty((n, m))
             for tid, track in enumerate(possible_tracks):
                 for cid, candidate in enumerate(candidates):
-                    between_frames_aff = pairwise_distance(track.reid_feats[0], candidate[0], track.reid_feats[1], candidate[1]).cpu().detach().numpy()
+                    between_frames_aff = pairwise_distance(track.reid_feats[0], candidate[0], track.reid_feats[1],
+                                                           candidate[1]).cpu().detach().numpy()
                     D[tid, cid] = between_frames_aff.min()
 
             rows, cols = linear_sum_assignment(D)
@@ -193,7 +208,7 @@ class MultiEstimator(object):
             handled_pids = set()
             for tid, cid in zip(rows, cols):
                 d = D[tid, cid]
-                if d > 0.21:
+                if d > 0.23:            # d > 0.21
                     continue
 
                 # merge pose into track
@@ -217,7 +232,7 @@ class MultiEstimator(object):
         return multi_pose3d
 
     def _hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id):
-        #return pictorial.hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id)
+        # return pictorial.hybrid_kernel(self, matched_list, pose_mat, sub_imgid2cam, img_id)
         multi_pose3d = list()
 
         for person in matched_list:
@@ -227,7 +242,7 @@ class MultiEstimator(object):
 
             # step1: use the 2D joint of person to triangulate the 3D joints candidates
             # person's 17 3D joints candidates
-            candidates = np.zeros((17, person.shape[0] * (person.shape[0] - 1) // 2, 3))            # 17xC^2_nx3
+            candidates = np.zeros((17, person.shape[0] * (person.shape[0] - 1) // 2, 3))  # 17xC^2_nx3
 
             cnt = 0
             for i in range(person.shape[0]):
@@ -254,7 +269,7 @@ class MultiEstimator(object):
             human = np.array([candidates[i][j] for i, j in zip(range(xp.shape[0]), xp)])
             human_coco = np.zeros((17, 3))
             human_coco[[0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]] = human
-            human_coco[[1, 2, 3, 4]] = human_coco[0]                   # Just make visualize beauty not real ear and eye
+            human_coco[[1, 2, 3, 4]] = human_coco[0]  # Just make visualize beauty not real ear and eye
             human_coco = human_coco.T
             if self.cfg.reprojection_refine and len(person) > 2:
                 for joint_idx in range(human_coco.shape[1]):
@@ -266,7 +281,8 @@ class MultiEstimator(object):
                         projected_pose = projected_pose_homo[:2] / projected_pose_homo[2]
                         reprojected_error[idx] += np.linalg.norm(projected_pose - pose_mat[pid, joint_idx])
 
-                    pose_select = (reprojected_error - reprojected_error.mean()) / reprojected_error.std() < self.cfg.refine_threshold
+                    pose_select = (
+                                              reprojected_error - reprojected_error.mean()) / reprojected_error.std() < self.cfg.refine_threshold
                     if pose_select.sum() >= 2:
                         Ps = list()
                         Ys = list()
@@ -309,7 +325,8 @@ class MultiEstimator(object):
             pose2d_0, pose2d_1 = pose_mat[sub_imageid[0]].T, pose_mat[sub_imageid[1]].T
             pose3d_homo = cv2.triangulatePoints(projmat_0, projmat_1, pose2d_0, pose2d_1)
             if self.cfg.use_bundle:
-                pose3d_homo = bundle_adjustment(pose3d_homo, person, self.dataset, pose_mat, sub_imgid2cam, logging=logger)
+                pose3d_homo = bundle_adjustment(pose3d_homo, person, self.dataset, pose_mat, sub_imgid2cam,
+                                                logging=logger)
             pose3d = pose3d_homo[:3] / (pose3d_homo[3] + 10e-6)
             # pose3d -= ((pose3d[:, 11] + pose3d[:, 12]) / 2).reshape ( 3, -1 ) # No need to normalize to hip
             if check_bone_length(pose3d):
@@ -336,3 +353,40 @@ def get_avg_pose(poses):
         else:
             result[jid] = None
     return np.asarray(result)
+
+
+def merge_candidates_feats(candidates, idxs):
+    query_ = candidates[idxs[0]][1] + candidates[idxs[1]][1]
+    feats_ = {**candidates[idxs[0]][0], **candidates[idxs[1]][0]}
+    return [feats_, query_]
+
+
+def get_similarity(pose1, pose2, threshold=0.80, num_kpts=17):
+    num_similar_kpt = 0
+    pose1, pose2 = 1000*pose1.T, 1000*pose2.T
+    for kpt_id in range(num_kpts):
+        distance = np.sum((pose1[kpt_id] - pose2[kpt_id]) ** 2)
+        area = max(get_volume(pose1), get_volume(pose2))
+        similarity = np.exp(-distance / (2 * (area + np.spacing(1)) * vars_[kpt_id]))
+        if similarity > threshold:
+            num_similar_kpt += 1
+    return num_similar_kpt
+
+
+def get_bbox(keypoints):
+    itmax = np.amax(keypoints, axis=0)
+    itmin = np.amin(keypoints, axis=0)
+    return [itmin[i] for i in range(3)] + [itmax[i] for i in range(3)]
+
+
+def get_volume(keypoints):
+    bbox = get_bbox(keypoints)
+    volume = (bbox[3] - bbox[0]) * (bbox[4] - bbox[1]) * (bbox[5] - bbox[2])
+    return volume
+
+
+def get_area(keypoints):
+    bbox = get_bbox(keypoints)
+    max_x_y = max(bbox[3] - bbox[0], bbox[4] - bbox[1])
+    volume = max_x_y * (bbox[5] - bbox[2])
+    return volume
